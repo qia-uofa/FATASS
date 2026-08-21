@@ -234,3 +234,4 @@ See also:
 - `free` — see `Command Tree/free.md`
 - `audit` — see `Command Tree/audit.md`
 - `continue` — see `Command Tree/continue.md`
+- `rmlog` — see `Command Tree/rmlog.md`
