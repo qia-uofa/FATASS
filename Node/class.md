@@ -4,26 +4,30 @@
 
 `<NodeDir>/.class/` — one per Node, alongside the rest of that Node's
 (git-versioned) filesystem, where `<NodeDir>` is that Node's own
-directory at whatever depth it lives (`./Topology/<NodeName>/` for a
-top-level Node; `./Topology/Parent/Topology/<NodeName>/` for one nested
-inside a topology node, and so on — see `topology.md`).
+directory at whatever depth it lives (`./Topology/<Name>/` for a
+top-level Node; `./Topology/<Group>/<Name>/`, `./Topology/<Parent>/<Name>/`
+for one nested under a plain folder or inside another Node, and so on —
+see `nesting.md`). Its *files* are named after `<NodeDir>`'s own final
+segment — `<NodeName>` below — but the *class* they define is named
+after `<NodeDir>`'s full path from `./Topology`, flattened with `_` (see
+`nesting.md`'s "Naming"); the two only coincide for a top-level Node.
 
 ## Contents
 
 `.class/` holds multiple Python modules:
 
 - One defining the Node subclass itself:
-  - Its name matches `<NodeName>` exactly — a topology node included,
-    same PascalCase convention; the one exception is the reserved root,
-    whose class is named `topology` instead (see `topology.md`).
-  - It subclasses `Node` — or `Topology` (itself a `Node` subclass) for
-    a topology node, see `topology.md` — imported from the `agent`
-    package.
+  - The *file* is named `<NodeName>.py` — `<NodeDir>`'s own final
+    segment. The *class* declared inside it is named after `<NodeDir>`'s
+    full path, flattened with `_` (see `nesting.md`).
+  - It subclasses `Node`, imported from the `agent` package. Every Node
+    subclasses `Node` directly; there is no separate base class for a
+    Node that hosts children (see `nesting.md`).
   - Its constructor takes no arguments — the working path is derived
-    from the class file's own location on disk (two directories up from
-    `<NodeDir>/.class/<NodeName>.py` is `<NodeDir>` itself) rather than
-    passed in or built from a fixed formula, which is what lets the same
-    logic work at any nesting depth (see `topology.md`).
+    from the class's own name (`Path("Topology", *type(self).__name__
+    .split("_"))` — see `nesting.md`) rather than passed in, which is
+    what lets the same logic work at any nesting depth without
+    inspecting the filesystem.
   - It defines `properties(self)` (see `properties.md`) and, if it has
     any transforms, `transform_names(self)` returning their names as
     plain strings — `Node.transforms` (inherited, not overridden) turns
@@ -35,8 +39,7 @@ inside a topology node, and so on — see `topology.md`).
   `from agent... import ...` statements resolve even when the real
   `agent` package hasn't been pip-installed in the current environment.
   It does no work of its own beyond redirecting to the real package on
-  disk. See "Shadow `agent` module" below. The root's `.class/` carries
-  one too, plus its own hardcoded `topology.py` — see `topology.md`.
+  disk. See "Shadow `agent` module" below.
 - Description files: Markdown files storing the verbatim `--description`
   text a Node or Transform was created from, so it can later be checked
   against what `properties()`/`apply()` actually do (see
@@ -64,11 +67,10 @@ the real package on disk by walking up its own ancestor directories one
 at a time until it finds one containing `Agent/agent/`, and rebinds
 itself to point at that, so submodule imports like `agent.core` resolve
 to the real files. It walks rather than assuming a fixed number of
-directories up, since a Node's `.class/` can now sit at any nesting
-depth under topology nodes (see `topology.md`) — the same reason
-`Node.__init__` itself no longer hardcodes a fixed-depth path formula.
-If the real package is already importable through some earlier
-`sys.path` entry, that one wins and the shadow is never reached.
+directories up, since a Node's `.class/` can sit at any nesting depth
+under `./Topology` (see `nesting.md`). If the real package is already
+importable through some earlier `sys.path` entry, that one wins and the
+shadow is never reached.
 
 ## Remark
 
@@ -80,14 +82,14 @@ filesystem and free-text descriptions at execution time.
 
 ## Lifecycle
 
-- `create <NodeName>` (see `../Command Tree/create.md`) generates the
+- `create <NodePath>` (see `../Command Tree/create.md`) generates the
   Node subclass file when a Node is first created, implementing
   `properties(self)` from the description given at creation time,
   relying on the base class's empty default `transform_names()` (no
   override needed until the first transform exists), and copying in the
   shadow `agent.py` module described above.
-- `create <NodeName>.<TransformName>` (see `../Command Tree/create.md`)
-  adds a new transform module to `.class/` and adds its name to the Node
+- `create <TransformPath>` (see `../Command Tree/create.md`) adds a new
+  transform module to `.class/` and adds its name to the owning Node
   subclass's `transform_names()` list (defining that method, overriding
   the base default, the first time it's needed).
 - `rename` (see `../Command Tree/rename.md`) updates a Node's or
@@ -101,5 +103,5 @@ filesystem and free-text descriptions at execution time.
   existing Node — e.g. a missing or misnamed Node subclass file, a name
   in `transform_names()` with no matching module, a constructor that
   takes arguments — and resolves any issues found through dialogue with
-  the user. It's also what bootstraps the root's own `.class/topology.py`
-  the very first time it's missing — see `topology.md`.
+  the user. It's also what creates `./Topology` itself the very first
+  time it's missing — see `nesting.md`.

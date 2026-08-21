@@ -3,20 +3,24 @@
 ## Syntax
 
 ```text
->>> audit <NodeName>
+>>> audit <NodePath>
 ```
 
-- `<NodeName>` — an existing Node's class name.
+- `<NodePath>` — an existing Node, relative to `agent.cwd` (see
+  `../agent.md`).
 
 ## Behavior
 
-1. Resolves `<NodeName>` against the current `agent.topology`, same as
-   `do`/`apply`/`build`/`update` (see `do.md`, `../agent.md`).
+1. Resolves `<NodePath>` against `agent.cwd`, same as
+   `do`/`apply`/`build`/`update` (see `do.md`, `../Node/nesting.md`,
+   `../agent.md`).
 2. Reads `.class/<NodeName>.md` (the Node's own description, written by
-   `create` — see `../Node/class.md`). If it's missing (the Node
-   predates this convention, or was never given one), reports that
+   `create` — see `../Node/class.md`, `<NodeName>` here being its own
+   final path segment, the same as its class *file*'s name — not its
+   flattened class name, see `../Node/nesting.md`). If it's missing (the
+   Node predates this convention, or was never given one), reports that
    explicitly instead of failing.
-3. For each of `<NodeName>`'s registered transforms, reads
+3. For each of this Node's registered transforms, reads
    `.class/<TransformName>.md` the same way.
 4. For the Node, and separately for each transform with a description on
    file, asks `Agent.free(...)` to judge whether the current

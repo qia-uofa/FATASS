@@ -3,53 +3,56 @@
 ## Syntax
 
 ```text
->>> remove <Name>
+>>> remove <Path>
 ```
 
-- `<Name>` — what to remove, using the same name-shape detection as
-  `create` (see `create.md`):
-  - `<NodeName>` (no dot) — an existing Node.
-  - `<NodeName>.<TransformName>` (one dot) — an existing Transform
-    registered on `<NodeName>`.
+- `<Path>` — what to remove, relative to `agent.cwd` (see `../agent.md`),
+  using the same name-shape detection as `create` (see `create.md`):
+  - **Node path** — an existing Node.
+  - **Transform path** (ends in `.class/<TransformName>.py`) — an
+    existing Transform registered on the owning Node.
 
 ## Behavior
 
-### Removing a Node (`<Name>` has no dot)
+### Removing a Node (`<Path>` is a Node path)
 
-1. Resolves `<NodeName>` against the current `agent.topology`, same as
-   `do`/`apply`/`build`/`update` (see `do.md`, `../agent.md`).
-2. Scans every *other* Node in the current `agent.topology` for one
-   whose `inputs` includes `<NodeName>` — a transform on a Node outside
-   `agent.topology` can't reference `<NodeName>` in the first place, so
-   there's nothing further out to check. A transform registered on
-   `<NodeName>` itself doesn't count against it — that transform is
-   being removed right along with the Node it belongs to, so depending
-   on its own soon-to-be-gone output isn't an external dependency. If
-   any transform belonging to a different Node still lists `<NodeName>`
-   as an input, refuses to remove and reports which transform(s) depend
-   on it — the fix is to `remove` or `rename` (retarget) those first.
-3. Once clear, deletes `<NodeName>` entirely, `.class/` included. If
-   `<NodeName>` is a topology node (see `../Node/topology.md`), this
-   also deletes everything nested under its own `Topology/` — every
-   descendant Node it hosts, recursively, with no separate "is it empty
-   first" check beyond the sibling-dependency scan in step 2 (which
-   already only concerns `<NodeName>`'s own level, not its descendants).
+1. Resolves `<Path>` against `agent.cwd` (see `../Node/nesting.md`,
+   `../agent.md`), same as `do`/`apply`/`build`/`update`.
+2. Scans every *other* Node anywhere under `./Topology` for one whose
+   `inputs` includes this Node — nothing is out of reach here, since any
+   Node can reference any other Node by path regardless of where either
+   sits in the tree (see `../Node/nesting.md`). A transform registered on
+   this Node itself, or on one of its own descendant Nodes (see step 3),
+   doesn't count against it — those are being removed right along with
+   it, so depending on their own soon-to-be-gone output isn't an external
+   dependency. If any transform belonging to a Node outside this Node's
+   own subtree still lists it (or one of its descendants) as an input,
+   refuses to remove and reports which transform(s) depend on it — the
+   fix is to `remove` or `rename` (retarget) those first.
+3. Once clear, deletes this Node's own directory entirely, `.class/`
+   included — and, since any Node can host children (see
+   `../Node/nesting.md`), this also deletes everything nested inside it:
+   every descendant Node it hosts (and any plain organizational folder
+   leading to one), recursively, with no separate "is it empty first"
+   check beyond the dependency scan in step 2 (which already covers this
+   Node's whole subtree, not just its own level).
 
-### Removing a Transform (`<Name>` is `<NodeName>.<TransformName>`)
+### Removing a Transform (`<Path>` is a Transform path)
 
-1. Resolves `<NodeName>` and confirms `<TransformName>` is one of its
-   registered transforms (same resolution as `do`).
-2. Scans every Node in the current `agent.topology`'s transform modules
-   for one whose `apply()` invokes
-   `<NodeName>.transforms['<TransformName>']` (a judgment call routed
-   through `Agent.free(...)`, not a plain text grep, since the reference
-   might be indirect). If any other transform invokes it, refuses to
-   remove and reports which transform(s) do — the fix is to update or
-   remove those first.
-3. Once clear, deletes `<NodeName>/.class/<TransformName>.py` and its
-   `<NodeName>/.class/<TransformName>.md` description file (see
-   `../Node/class.md`), and removes `"<TransformName>"` from
-   `<NodeName>`'s `transform_names()` list.
+1. Resolves the owning Node and confirms `<TransformName>` (`<Path>`'s
+   final segment, minus `.py`) is one of its registered transforms (same
+   resolution as `do`).
+2. Scans every Node anywhere under `./Topology`'s transform modules for
+   one whose `apply()` invokes the target transform (via
+   `transforms['<TransformName>']` on the owning Node, resolved by path —
+   see `../Node/nesting.md`) — a judgment call routed through
+   `Agent.free(...)`, not a plain text grep, since the reference might be
+   indirect. If any other transform invokes it, refuses to remove and
+   reports which transform(s) do — the fix is to update or remove those
+   first.
+3. Once clear, deletes the transform's own `.py` file and its `.md`
+   description file (see `../Node/class.md`), and removes
+   `"<TransformName>"` from the owning Node's `transform_names()` list.
 
 ## Purpose
 

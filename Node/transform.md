@@ -5,26 +5,37 @@
 A transform is a class:
 
 ```python
-from agent.topology import Topology
+from agent.nesting import load_node_module
 
 class SpecificTransform(Transform):
     def __init__(self):
         self.inputs: dict[str, Node] = {
-            "OtherNode": Topology().load_node_module("OtherNode").OtherNode(),
-            "AnotherNode": Topology().load_node_module("AnotherNode").AnotherNode(),
+            "Group/OtherNode": load_node_module("Group/OtherNode")(),
+            "AnotherNode": load_node_module("AnotherNode")(),
         }
-        self.output = Topology().load_node_module("MyNode").MyNode()
+        self.output = load_node_module("MyNode")()
 
     def apply(self):
         ...  # overwrites self.output's filesystem using self.inputs
 ```
+
+`load_node_module(path)` returns the Node *class* directly, already
+resolved by path — never `.SomeAttr` after it: the class it returns is
+named after `path` flattened (see `nesting.md`), a name the caller
+would otherwise have to spell out redundantly (`path` and the flattened
+class name are both derived from the exact same string, so making the
+caller repeat it would just be one more place a rename could leave
+stale).
 
 - `Transform` is the base class, defined in the `agent` package alongside
   `Node`.
 - Its constructor (no arguments, same convention as `Node`'s own) hardcodes
   two properties:
   - `inputs` — a `dict[str, Node]` of every Node whose filesystem this
-    transform reads from, keyed by Node name. There can be more than one.
+    transform reads from, keyed by that Node's `./Topology`-relative path
+    (see `nesting.md`) — the same string `load_node_module(path)` is
+    called with, so the key and the call it labels are always visibly in
+    sync. There can be more than one input.
   - `output` — the single Node whose filesystem this transform overwrites.
     It's usually (but need not be) the same Node the transform is
     registered under (see Storage below).
@@ -37,19 +48,20 @@ class SpecificTransform(Transform):
   directory, `self.output`'s own included, only to its non-`.class`
   content. Editing `.class/` is `create`'s/`remove`'s/`rename`'s job,
   not a transform's.
-- `inputs`/`output` are resolved via `Topology().load_node_module(name)`
-  rather than a plain `import` of the referenced Node class. Those Nodes
-  usually live in other `.class/` directories entirely, and when `output`
-  is the Node this transform is registered under, a plain import would be
-  circular (that Node's own file would need to import this transform back
-  — see Storage). Resolving by name sidesteps both problems; it costs
-  nothing extra since `Node.__init__` doesn't do any real work besides
-  setting `path` (see Storage below on why). `Topology()` here resolves
-  to the Topology this transform's own Node is itself a child of — never
-  a hardcoded global root, and independent of wherever `agent.topology`
-  (see `../agent.md`) happens to point at the moment `apply()` actually
-  runs, since `inputs`/`output` were fixed at `create trans` time (see
-  `../Command Tree/create.md`), not re-resolved later (see `topology.md`).
+- `inputs`/`output` are resolved via `load_node_module(path)` (see
+  `nesting.md`) rather than a plain `import` of the referenced Node
+  class. Those Nodes usually live in other `.class/` directories
+  entirely, and when `output` is the Node this transform is registered
+  under, a plain import would be circular (that Node's own file would
+  need to import this transform back — see Storage). Resolving by path
+  sidesteps both problems; it costs nothing extra since `Node.__init__`
+  doesn't do any real work besides setting `path` (see Storage below on
+  why). The path baked into each call is resolved to `./Topology`-relative
+  form once, at `create trans` time (see `../Command Tree/create.md`),
+  from whatever the user typed relative to `agent.cwd` at that moment —
+  so it stays correct independent of wherever `agent.cwd` (see
+  `../agent.md`) happens to point at the moment `apply()` actually runs,
+  not re-resolved against it later.
 
 ## Storage
 
@@ -67,9 +79,12 @@ class MyNode(Node):
 
 `Node.transforms` (defined once on the base class, not overridden per
 Node) turns that list into instances on first access, loading each
-`<name>.py` module from this Node's own `.class/` directory via
-`Topology().load_transform_module(...)` (same `Topology()` resolution as
-`inputs`/`output` above — see `topology.md`). It is deliberately **not** built
+`<name>.py` transform class from this Node's own `.class/` directory via
+`load_transform_module(...)` (same path-based resolution as
+`inputs`/`output` above — see `nesting.md`; unlike `load_node_module`, it
+returns the class under its own given name, never flattened — see
+`nesting.md`'s "Resolving a path to a Node or Transform"). It is
+deliberately **not** built
 eagerly in `Node.__init__`: since a transform's `output` is usually the
 very Node it's registered under, eager construction would recurse forever
 — instantiating a Node would build its transforms, each of which
@@ -87,14 +102,15 @@ file itself (see `class.md`).
 
 ## Usage
 
-- Invoked through `apply <NodeName> <TransformName> [args...]` (see
+- Invoked through `apply <TransformPath> [args...]` (see
   `../Command Tree/apply.md`), or directly through `do` (see
   `../Command Tree/do.md`), e.g.
-  `>>> do "MyNode().transforms['SpecificTransform'].apply()"`.
+  `>>> do "transform('MyNode/.class/SpecificTransform.py').apply()"`
+  — or, equivalently, `>>> do "node('MyNode').transforms
+  ['SpecificTransform'].apply()"`.
 - May consult a target Node's `properties(self)` (see `properties.md`)
   beforehand, to decide what work is still needed.
-- Created via `create <NodeName>.<TransformName>` (see
-  `../Command Tree/create.md`); removed via `remove
-  <NodeName>.<TransformName>` (see `../Command Tree/remove.md`);
-  renamed via `rename <NodeName>.<TransformName> <NodeName>.<New>` (see
+- Created via `create <TransformPath>` (see `../Command Tree/create.md`);
+  removed via `remove <TransformPath>` (see `../Command Tree/remove.md`);
+  renamed via `rename <TransformPath> <NewName>` (see
   `../Command Tree/rename.md`).

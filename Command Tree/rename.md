@@ -3,68 +3,90 @@
 ## Syntax
 
 ```text
->>> rename <Name> <NewName>
+>>> rename <Path> <NewName>
 ```
 
-- `<Name>` — the existing Node or Transform to rename, using the same
-  name-shape detection as `create` (see `create.md`):
-  - `<NodeName>` (no dot) — renames a Node.
-  - `<NodeName>.<TransformName>` (one dot) — renames a Transform
-    registered on `<NodeName>`.
-- `<NewName>` — the replacement name, in the same shape as `<Name>`: a
-  bare name when renaming a Node, `<NodeName>.<NewTransformName>` when
-  renaming a Transform. The `<NodeName>` prefix must match `<Name>`'s —
-  `rename` changes a name in place, it can't move a Transform to a
-  different Node (that's a `remove` on the old Node plus a `create` on
-  the new one). Must be a valid Python class name; when renaming a Node,
-  also may not be `topology` (case-insensitively), same as `create` —
-  that name stays reserved for the root Topology no matter which command
-  is asked to produce it (see `../Node/topology.md`).
+- `<Path>` — the existing Node or Transform to rename, relative to
+  `agent.cwd` (see `../agent.md`), using the same name-shape detection
+  as `create` (see `create.md`):
+  - **Node path** — renames a Node.
+  - **Transform path** (ends in `.class/<TransformName>.py`) — renames a
+    Transform registered on the owning Node.
+- `<NewName>` — the replacement: a bare, valid Python class name, not a
+  path. `rename` changes a Node's own folder name (or a Transform's own
+  filename) in place; it doesn't relocate anything to a different
+  parent — that's `move` (`move.md`), for a Node, which handles exactly
+  that relocation without discarding the Node's `.class/`-derived logic
+  the way a `remove` plus `create` would.
 
 ## Behavior
 
-### Renaming a Node (`<Name>` has no dot)
+### Renaming a Node (`<Path>` is a Node path)
 
-1. Resolves `<NodeName>` against the current `agent.topology`, same as
-   `do`/`apply`/`build`/`update` (see `do.md`, `../agent.md`).
-2. Scans every Node in the current `agent.topology`'s `.class/` for
-   occurrences of `<NodeName>` that need updating: the class file's own
-   class name, every transform's `inputs`/`output` (any
-   `Topology().load_node_module("<NodeName>")` call, `<NodeName>`'s own
-   transforms included), and any `Agent.free(...)`-authored prose that
-   names `<NodeName>` — a judgment call, not a plain text find/replace,
-   since references can be indirect. If `<NodeName>` is a topology node,
-   nothing inside its own nested `Topology/` needs updating — names
-   there are scoped to that nested Topology, unaffected by what its
-   host Node is called.
-3. Renames the directory `<NodeName>` to `<NewName>` (within the current
-   `agent.topology`), renames the class file `<NodeName>.py` to
-   `<NewName>.py` and its description file `<NodeName>.md` to
-   `<NewName>.md` (see `../Node/class.md`), and updates the class name
-   inside the class file to `<NewName>`.
-4. Rewrites every occurrence found in step 2 to `<NewName>`.
+1. Resolves `<Path>` against `agent.cwd` (see `../Node/nesting.md`,
+   `../agent.md`), same as `do`/`apply`/`build`/`update`.
+2. Computes this Node's new `./Topology`-relative path: the same parent,
+   final segment replaced with `<NewName>`. Since a Node's class name is
+   its full path flattened with `_` (see `../Node/nesting.md`), this
+   also changes its class name — from the old path flattened, to the
+   new one.
+3. Finds every descendant Node nested inside this Node's own directory,
+   at any depth (see `../Node/nesting.md`) — each one's class name
+   changes too, since it embeds this Node's own path as a prefix. For
+   each, computes its own new path (and so new class name) by
+   substituting the renamed prefix, leaving whatever's nested below this
+   Node itself unchanged. A descendant's `.class/` *file* names are
+   unaffected either way — they're always just that descendant's own
+   final segment (see `../Node/nesting.md`'s "File names"), never the
+   flattened form, so nothing about them needs renaming on disk.
+4. Scans every Node anywhere under `./Topology` for occurrences that
+   need updating, for this Node and every descendant found in step 3
+   alike: each one's own class declaration (`class <old flattened>
+   (Node):` — only inside its *own* `.class/<own segment>.py`, found via
+   step 3, never elsewhere), every transform's `inputs`/`output` and any
+   `self.inputs['<old path>']` lookup inside its own `apply()` (both use
+   the plain, unflattened path — see `../Node/transform.md`), and any
+   `Agent.free(...)`-authored prose that names one of them — a judgment
+   call, not a plain text find/replace, since references can be
+   indirect.
+5. Renames this Node's own directory (its final path segment) to
+   `<NewName>`, and its class and description files (see
+   `../Node/class.md`) to match — since every descendant's directory
+   sits inside this one, they move along with it on disk automatically,
+   with no filename changes of their own (step 3). Updates the class
+   declaration inside this Node's own (now-renamed) class file to its
+   new flattened name, and does the same inside each descendant's own
+   class file found in step 3 — a content edit only, since none of
+   those files themselves get renamed or moved independently.
+6. Rewrites every occurrence found in step 4 to the corresponding new
+   path (for `load_node_module(...)` calls and `self.inputs[...]`
+   lookups) or new class name (for a class declaration).
 
-### Renaming a Transform (`<Name>` is `<NodeName>.<TransformName>`)
+### Renaming a Transform (`<Path>` is a Transform path)
 
-1. Resolves `<NodeName>` and confirms `<TransformName>` is one of its
-   registered transforms (same resolution as `do`).
-2. Scans every Node in the current `agent.topology`'s transform modules
-   for occurrences of `<TransformName>` that need updating: `<NodeName>`'s
-   `transform_names()` list, and any other transform that invokes
-   `<NodeName>.transforms['<TransformName>']` (same judgment-call scan
+1. Resolves the owning Node and confirms `<TransformName>` (`<Path>`'s
+   final segment, minus `.py`) is one of its registered transforms (same
+   resolution as `do`).
+2. Scans every Node anywhere under `./Topology`'s transform modules for
+   occurrences of `<TransformName>` that need updating: the owning
+   Node's `transform_names()` list, and any other transform that invokes
+   `transforms['<TransformName>']` on it (same judgment-call scan
    `remove` uses to check for dependents — see `remove.md`).
-3. Renames `<NodeName>/.class/<TransformName>.py` to
-   `<NodeName>/.class/<NewTransformName>.py` (updating the class name
-   inside it) and `<NodeName>/.class/<TransformName>.md` to
-   `<NodeName>/.class/<NewTransformName>.md`.
-4. Rewrites every occurrence found in step 2 to `<NewTransformName>`.
+3. Renames the transform's `.py` file (updating the class name inside
+   it) and its `.md` description file to `<NewName>`.
+4. Rewrites every occurrence found in step 2 to `<NewName>`.
 
 ## Purpose
 
 Keeps a Node or Transform's name consistent everywhere it's referenced
 — its own `.class/` files, every other Node's `inputs`/`output`
 bindings, `transform_names()` entries, and description files — so a
-rename never leaves a stale name behind the way manually editing
-`./Topology` would. Unlike `remove`, `rename` has no "nothing else may
-depend on it" precondition: every dependent gets rewritten instead of
-being required to already be gone.
+rename never leaves a stale reference behind the way manually editing
+`./Topology` would. Since a Node's class name is derived from its path
+(see `../Node/nesting.md`), renaming a Node necessarily also renames
+every Node nested inside it — there's no way to change one segment of a
+path without changing every flattened name built on top of it, even
+though the *files* those classes live in never need renaming themselves
+(only their own content). Unlike `remove`, `rename` has no "nothing else
+may depend on it" precondition: every dependent gets rewritten instead
+of being required to already be gone.

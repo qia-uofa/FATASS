@@ -12,7 +12,7 @@ Reports which of the Node's properties have been fulfilled and which
 haven't, as a prompt string.
 
 The property set itself isn't declared anywhere separate — it's implicit
-in how this method is written. When `create <NodeName>` generates this
+in how this method is written. When `create <NodePath>` generates this
 method, it derives that property set from the description given at
 creation time (see `../Command Tree/create.md`) and bakes it into the
 method body via `Agent.free(...)`, since deciding what counts as "the
@@ -52,7 +52,8 @@ though the rest of `.class/` is tracked. This only applies to the
 - Called by `init` (see `../Command Tree/init.md`) while scanning existing
   Nodes, as part of diagnosing their current state.
 - Callable directly through `do` (see `../Command Tree/do.md`), e.g.
-  `>>> do "MyNode().properties()"`, to check a Node's status on demand.
+  `>>> do "node('MyNode').properties()"`, to check a Node's status on
+  demand.
 - May be read by transformation methods (see `transform.md`) — e.g. a
   transform on one Node might inspect another Node's `properties()` output
   before deciding how to proceed.

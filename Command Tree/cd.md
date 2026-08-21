@@ -6,77 +6,58 @@
 >>> cd <path>
 ```
 
-- `<path>` — one of:
-  - `<NodeName>` — a topology node (see `../Node/topology.md`) that's a
-    direct child of the current `agent.topology`. Moves `agent.topology`
-    into that Node's own nested Topology.
-  - `<NodeName1>/<NodeName2>/.../<NodeNameN>` — the same, chained: each
-    segment must be a topology node that's a child of the Topology the
-    previous segment moved into.
-  - `..` — moves `agent.topology` to its parent Topology (the Topology
-    hosting the topology node `agent.topology` currently is). An error
-    if `agent.topology` is already the root — the root has no parent.
-  - `,` — moves `agent.topology` straight back to the root Topology
-    (`./Topology`, reserved class name `topology`), regardless of how
-    deep the current `agent.topology` is nested.
+- `<path>` — a relative path (POSIX-style, `.`/`..` segments allowed)
+  from `agent.cwd` (see `../agent.md`) to another folder under
+  `./Topology`: a plain organizational folder or a Node, either is a
+  valid target — `cd` doesn't care which, it only moves where
+  `agent.cwd` points. Examples: `Group`, `Sub1/Sub2`, `..`, `../Other`,
+  `.` (a no-op).
 
 ## Behavior
 
-1. For `<NodeName1>/.../<NodeNameN>`: resolves each segment in order,
-   the first against the current `agent.topology.topology_path`, each
-   subsequent one against the Topology the previous segment moved into —
-   the same per-segment resolution `do`/`build`/etc. use (see `do.md`),
-   applied once per segment.
-2. Each resolved Node must be a topology node — its class inherits
-   `Topology`, not just `Node` (see `../Node/topology.md`). Resolving a
-   plain Node this way is an error, surfaced as-is: `cd` can't move into
-   something with no nested Topology to move into.
-3. For `..`: resolves the topology node whose own nested Topology *is*
-   the current `agent.topology`, and sets `agent.topology` to the
-   Topology that topology node is itself a child of. An error if
-   `agent.topology` is already the root (see Syntax above).
-4. For `,`: sets `agent.topology` directly to the root Topology instance
-   (class `topology`, `./Topology`), independent of how deep the current
-   `agent.topology` is nested.
-5. On success, sets `agent.topology` (see `../agent.md`) to the resolved
-   Topology instance. Every subsequent command's `<NodeName>` resolution
-   is relative to it until the next `cd`.
-6. Reports back the resolved Topology's path (e.g.
-   `./Topology/Node1/Topology/.../NodeN/Topology`, or `./Topology` after
-   `cd ,`).
+1. Joins `<path>` onto `agent.cwd`, resolving `..`/`.` segments the same
+   way a shell does. Every segment along the way must already exist as a
+   folder under `./Topology` — `cd` never creates anything. An error if
+   any segment doesn't exist, if the result would move above
+   `./Topology` itself, or if any segment is (or is nested inside) a
+   `.class` directory — `.class/` is reserved (see `../Node/nesting.md`)
+   and isn't part of the addressable Node/organizational-folder tree
+   `agent.cwd` moves around in.
+2. On success, sets `agent.cwd` (see `../agent.md`) to the resolved path.
+3. Reports back the resolved path (e.g. `Group/Sub`, or `.` at the root).
 
 ### Example
 
 ```text
->>> cd MyNode
+>>> cd Group
 ```
 
-moves the agent to work under `./Topology/MyNode/Topology`. From there:
+moves `agent.cwd` to `Group`. From there:
 
 ```text
 >>> cd Sub1/Sub2
 ```
 
-moves it to `./Topology/MyNode/Topology/Sub1/Topology/Sub2/Topology`.
-Then:
+moves it to `Group/Sub1/Sub2`. Then:
 
 ```text
 >>> cd ..
 ```
 
-returns it to `./Topology/MyNode/Topology/Sub1/Topology`, and:
+returns it to `Group/Sub1`, and:
 
 ```text
->>> cd ,
+>>> cd ../..
 ```
 
-returns it all the way to `./Topology`, the root.
+returns it all the way to `.`, the root.
 
 ## Purpose
 
-Makes nested topology nodes (see `../Node/topology.md`) navigable the
-same way a filesystem's directories are — every other command's
-`<NodeName>` always means "a child of whatever Topology `cd` last left
-`agent.topology` pointing at" (see `../agent.md`), so working deep
-inside a nested Topology doesn't require spelling out the full nested
-path on every single command.
+`agent.cwd` is what every other command's `<NodePath>`/`<TransformPath>`
+argument resolves relative to (see `../agent.md`) — `do`'s raw Python
+line included, via `node(path)`/`transform(path)` (see
+`../Node/nesting.md`). `cd` is the only thing that changes it, the same
+way `cd` works in an ordinary shell: it doesn't touch anything under
+`./Topology` itself, it just changes what a subsequent relative path
+means.

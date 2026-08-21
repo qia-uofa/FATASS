@@ -3,11 +3,20 @@
 ## Filesystem
 
 The agent works in a filesystem rooted at `./Topology`, where `./` is the
-directory the external agent itself is running in.
+directory the external agent itself is running in. `./Topology` itself
+is a plain directory — not a Node, not backed by any `.class/` of its
+own.
 
-`./Topology` contains subfolders. Each subfolder is a **Node**. A Node's
-folder name follows Python class naming convention (e.g. `MyNode`), because
-it names a corresponding Python class (see below).
+Any folder anywhere under `./Topology`, at any depth, is a **Node** if it
+contains a `.class/` subdirectory — that's the whole test, checked by
+presence, not by any separate registry. A folder without `.class/` is a
+plain organizational folder: it holds no content of its own, existing
+only to shape the path of whatever Nodes sit underneath it. A Node's own
+directory can likewise contain further nested subfolders — Nodes or
+plain organizational folders — alongside its `.class/` and its own
+content; nesting is purely a filesystem fact, not a distinct
+object-model type. Every folder name under `./Topology` follows Python
+class naming convention (e.g. `MyNode`).
 
 Each Node folder is a plain directory — not its own git repository. The
 whole Topology is versioned as part of the outer repo like everything
@@ -20,15 +29,23 @@ whole folder as an untrackable embedded repository — without also
 registering it as a proper submodule, which nothing here ever did. Dropped
 as unnecessary complexity that didn't actually work.)
 
-Each Node folder also contains a `.class/` subdirectory.
+### Naming and addressing
 
-`./Topology` is itself a **Topology** — the root one — and any Node can
-also be a **topology node**: one that's also a Topology, hosting its own
-nested Nodes under a `Topology/` subfolder sibling to its `.class/`
-(`./Topology/MyNode/Topology/...`), nested arbitrarily deep. Which
-Topology the agent is currently working under (the root, or a nested
-one reached via `cd`) determines what a bare `<NodeName>` in any command
-resolves against. See `Node/topology.md` and `agent.md`.
+A Node's *class* name is its full path from `./Topology`, flattened by
+replacing each `/` with `_` — e.g. `./Topology/Draft/Control/Style`
+names the class `Draft_Control_Style`, unique across the whole tree. Its
+`.class/` *files*, though, are named after its own folder only (the last
+segment) — `Draft/Control/Style/.class/Style.py` contains `class
+Draft_Control_Style(Node)` — so a short file holds a long, unambiguous
+class name.
+
+No command spells that class name out, though: every command addresses
+a Node — and a Transform — by **relative path** from `agent.cwd` (see
+`agent.md`) instead. A Node path is the relative path to its own
+directory (e.g. `To/Node`, `../Other/Node`); a Transform path is a Node
+path with `.class/<TransformName>.py` appended (e.g.
+`To/Node/.class/Transform.py`) — the relative path to the transform's
+own `.py` file. See `Node/nesting.md` for the full mechanics.
 
 ## Access
 
@@ -142,16 +159,18 @@ is `../Agent`.
 
 ## The Node class
 
-Inside `.class/`, a Python class is defined:
+Inside `.class/<own folder name>.py`, a Python class is defined:
 
-- Its name matches the Node's folder name exactly (or, for the reserved
-  root, is `topology` — see `Node/topology.md`).
-- It subclasses `Node` — or `Topology` (itself a `Node` subclass, for a
-  topology node) — both defined in the `agent` package.
+- Its name is the Node's full path from `./Topology`, flattened with `_`
+  — not the file's own name, which stays just the folder's own final
+  segment (see "Naming and addressing" above, `Node/nesting.md`).
+- It subclasses `Node`, defined in the `agent` package. Every Node
+  subclasses `Node` directly, whether or not it hosts children of its
+  own.
 - Its constructor takes no arguments — the working path is derived from
-  the class file's own location on disk, which is what lets the same
-  logic work at any nesting depth under topology nodes (see
-  `Node/class.md`, `Node/topology.md`).
+  the class's own name (splitting it back into segments on `_`), which
+  is what lets the same logic work at any nesting depth without
+  inspecting the filesystem (see `Node/class.md`, `Node/nesting.md`).
 
 ### `properties(self)`
 
@@ -173,13 +192,14 @@ usually the very Node it's registered under, so building it eagerly would
 recurse forever (see `Node/transform.md`).
 
 Each transform's no-argument constructor hardcodes two properties:
-`inputs`, a `dict[str, Node]` of every Node it reads from (there can be
-more than one), and `output`, the single Node whose filesystem it
-overwrites — both resolved by name via `Topology().load_node_module(...)`
-rather than a plain import, since the referenced Nodes usually live in
-other `.class/` directories entirely. It implements `apply(self)`, which
-overwrites `output`'s filesystem using `inputs` — either programmatically
-(plain Python), by invoking `Agent.free(...)`, or a combination of both.
+`inputs`, a `dict[str, Node]` of every Node it reads from, keyed by that
+Node's `./Topology`-relative path (there can be more than one input),
+and `output`, the single Node whose filesystem it overwrites — both
+resolved via `load_node_module(...)` rather than a plain import, since
+the referenced Nodes usually live in other `.class/` directories
+entirely. It implements `apply(self)`, which overwrites `output`'s
+filesystem using `inputs` — either programmatically (plain Python), by
+invoking `Agent.free(...)`, or a combination of both.
 
 Remark: `.class/` itself — the Node and Transform class bodies, their
 structure and control flow — is unaware of the Node's real content,
@@ -193,9 +213,8 @@ See also:
 - `Node/class.md` — the `.class/` file itself
 - `Node/properties.md` — the `properties(self)` method
 - `Node/transform.md` — transformation methods
-- `Node/topology.md` — `Topology`, topology nodes, and the reserved root
-- `agent.md` — `Agent`'s own state (`agent.topology`) and how commands
-  read it
+- `Node/nesting.md` — nesting, class names, and the `./Topology` root
+- `agent.md` — `Agent`'s own state (`agent.cwd`) and how commands read it
 
 ## Commands
 
@@ -204,6 +223,8 @@ See also:
 - `create` — see `Command Tree/create.md`
 - `remove` — see `Command Tree/remove.md`
 - `rename` — see `Command Tree/rename.md`
+- `move` — see `Command Tree/move.md`
+- `modify` — see `Command Tree/modify.md`
 - `do` — see `Command Tree/do.md`
 - `apply` — see `Command Tree/apply.md`
 - `build` — see `Command Tree/build.md`
@@ -212,3 +233,4 @@ See also:
 - `graph` — see `Command Tree/graph.md`
 - `free` — see `Command Tree/free.md`
 - `audit` — see `Command Tree/audit.md`
+- `continue` — see `Command Tree/continue.md`
